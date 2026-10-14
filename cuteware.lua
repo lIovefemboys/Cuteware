@@ -11486,6 +11486,395 @@ do
 			return SettingsPage
 		end
 
+		Library.ESPPreview = function(Self, Params)
+			Params = Params or { }
+
+			local Section = Self
+			local Height = Params.Height or Params.height or 250
+			local MakeToggles = Params.Toggles
+			if MakeToggles == nil then MakeToggles = Params.toggles end
+			if MakeToggles == nil then MakeToggles = true end
+			local Animate = Params.Animate
+			if Animate == nil then Animate = Params.animate end
+			if Animate == nil then Animate = true end
+			-- твой персонаж вместо болванки + крутилка мышкой
+			local UsePlayer = Params.UsePlayer
+			if UsePlayer == nil then UsePlayer = Params.useplayer end
+			if UsePlayer == nil then UsePlayer = true end
+			local Rotatable = Params.Rotatable
+			if Rotatable == nil then Rotatable = Params.rotatable end
+			if Rotatable == nil then Rotatable = true end
+
+			local FBox = Params.BoxFlag or "esp_box"
+			local FBoxC = Params.BoxColorFlag or "esp_box_color"
+			local FOut = Params.OutlinesFlag or "esp_outlines"
+			local FName = Params.NameFlag or "esp_name"
+			local FHp = Params.HealthFlag or "esp_health"
+			local FHpC = Params.HealthColorFlag or "esp_health_color"
+			local FArmor = Params.ArmorFlag or "esp_armor"
+			local FArmorC = Params.ArmorColorFlag or "esp_armor_color"
+			local FDist = Params.DistanceFlag or "esp_distance"
+			local FSkel = Params.SkeletonFlag or "esp_skeleton"
+			local FSkelC = Params.SkeletonColorFlag or "esp_skeleton_color"
+			local FCham = Params.ChamsFlag or "esp_chams"
+			local FChamC = Params.ChamsColorFlag or "esp_chams_color"
+
+			local function ResolveColor(v, fallback)
+				if typeof(v) == "Color3" then return v end
+				if type(v) == "table" and typeof(v.Color) == "Color3" then return v.Color end
+				return fallback
+			end
+
+			if MakeToggles then
+				local function Need(flag) return Flags[flag] == nil end
+				local tBox, tSkel, tCham, tHp, tArmor
+				if Need(FBox) then tBox = Section:Toggle({ Name = "Box", Flag = FBox, Default = true }) end
+				if Need(FOut) then Section:Toggle({ Name = "Outlines", Flag = FOut, Default = true }) end
+				if Need(FName) then Section:Toggle({ Name = "Name", Flag = FName, Default = true }) end
+				if Need(FHp) then tHp = Section:Toggle({ Name = "Health", Flag = FHp, Default = true }) end
+				if Need(FArmor) then tArmor = Section:Toggle({ Name = "Armor", Flag = FArmor, Default = true }) end
+				if Need(FDist) then Section:Toggle({ Name = "Distance", Flag = FDist, Default = true }) end
+				if Need(FSkel) then tSkel = Section:Toggle({ Name = "Skeleton", Flag = FSkel, Default = false }) end
+				if Need(FCham) then tCham = Section:Toggle({ Name = "Chams", Flag = FCham, Default = false }) end
+				if Need(FBoxC) then
+					local host = tBox or Section:Label({ Name = "Box Color" })
+					host:Colorpicker({ Flag = FBoxC, Default = Color3.fromRGB(255, 255, 255) })
+				end
+				if Need(FHpC) then
+					local host = tHp or Section:Label({ Name = "Health Color" })
+					host:Colorpicker({ Flag = FHpC, Default = Color3.fromRGB(0, 255, 0) })
+				end
+				if Need(FArmorC) then
+					local host = tArmor or Section:Label({ Name = "Armor Color" })
+					host:Colorpicker({ Flag = FArmorC, Default = Color3.fromRGB(0, 170, 255) })
+				end
+				if Need(FSkelC) then
+					local host = tSkel or Section:Label({ Name = "Skeleton Color" })
+					host:Colorpicker({ Flag = FSkelC, Default = Color3.fromRGB(255, 255, 255) })
+				end
+				if Need(FChamC) then
+					local host = tCham or Section:Label({ Name = "Chams Color" })
+					host:Colorpicker({ Flag = FChamC, Default = Color3.fromRGB(181, 32, 55) })
+				end
+			end
+
+			local Preview = {
+				Window = Section.Window,
+				Page = Section.Page,
+				Section = Section,
+				Items = { },
+			}
+
+			local Parent = Section.Items["Content"]
+			local Holder = Library:Create("Frame", {
+				Name = "\0",
+				Parent = Parent.Instance,
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 0, Height),
+				BorderSizePixel = 0,
+			})
+			Preview.Items["Holder"] = Holder
+
+			local Box = Library:Create("Frame", {
+				Name = "\0",
+				Parent = Holder.Instance,
+				Size = UDim2.new(1, 0, 1, 0),
+				BorderSizePixel = 0,
+				BackgroundColor3 = Library.Theme["Section Box"],
+			}):AddToTheme({ BackgroundColor3 = "Section Box" })
+			Library:Create("UIStroke", { Name = "\0", Parent = Box.Instance, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Color = Library.Theme["Outline 1"] }):AddToTheme({ Color = "Outline 1" })
+
+			local View = Library:Create("ViewportFrame", {
+				Name = "\0",
+				Parent = Holder.Instance,
+				Size = UDim2.new(1, -4, 1, -4),
+				Position = UDim2.new(0, 2, 0, 2),
+				BorderSizePixel = 0,
+				BackgroundColor3 = Color3.fromRGB(17, 17, 17),
+				Ambient = Color3.fromRGB(160, 160, 160),
+				LightColor = Color3.fromRGB(255, 255, 255),
+			})
+			Preview.Items["View"] = View
+
+			local World = Library:Create("WorldModel", { Name = "\0", Parent = View.Instance })
+
+			-- модель: твой персонаж (клон), иначе болванка
+			local Rig = nil
+			local DummyParts = nil
+			local function BuildDummy()
+				local m = Instance.new("Model")
+				m.Name = "Dummy"
+				local function MkPart(name, size, pos, color, ball)
+					local p = Instance.new("Part")
+					p.Name = name
+					p.Size = size
+					p.Position = pos
+					p.Anchored = true
+					p.CanCollide = false
+					p.Color = color
+					p.Material = Enum.Material.SmoothPlastic
+					if ball then p.Shape = Enum.PartType.Ball end
+					p.Parent = m
+					return p
+				end
+				local head = MkPart("Head", Vector3.new(1.1, 1.1, 1.1), Vector3.new(0, 5.2, 0), Color3.fromRGB(200, 170, 140), true)
+				local torso = MkPart("Torso", Vector3.new(2, 2, 1), Vector3.new(0, 3.6, 0), Color3.fromRGB(60, 120, 200), false)
+				local lArm = MkPart("LArm", Vector3.new(1, 2, 1), Vector3.new(-1.6, 3.6, 0), Color3.fromRGB(200, 170, 140), false)
+				local rArm = MkPart("RArm", Vector3.new(1, 2, 1), Vector3.new(1.6, 3.6, 0), Color3.fromRGB(200, 170, 140), false)
+				local lLeg = MkPart("LLeg", Vector3.new(1, 2, 1), Vector3.new(-0.55, 1.5, 0), Color3.fromRGB(70, 70, 70), false)
+				local rLeg = MkPart("RLeg", Vector3.new(1, 2, 1), Vector3.new(0.55, 1.5, 0), Color3.fromRGB(70, 70, 70), false)
+				m.Parent = World.Instance
+				DummyParts = { head = head, torso = torso, lArm = lArm, rArm = rArm, lLeg = lLeg, rLeg = rLeg }
+				return m
+			end
+			local function LoadPlayer()
+				local char = LocalPlayer and LocalPlayer.Character
+				if not char then return nil end
+				pcall(function() char.Archivable = true end)
+				local ok, clone = pcall(function() return char:Clone() end)
+				if not ok or not clone then return nil end
+				for _, d in ipairs(clone:GetDescendants()) do
+					if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("Tool") then
+						pcall(function() d:Destroy() end)
+					elseif d:IsA("BasePart") then
+						d.Anchored = true
+						d.CanCollide = false
+					end
+				end
+				pcall(function()
+					local cf = clone:GetBoundingBox()
+					clone:PivotTo(CFrame.new(0, 0, 0) * (CFrame.new(0, 3, 0) - cf.Position))
+				end)
+				clone.Parent = World.Instance
+				return clone
+			end
+			local function LoadRig()
+				if Rig then pcall(function() Rig:Destroy() end) Rig = nil DummyParts = nil end
+				if UsePlayer then Rig = LoadPlayer() end
+				if not Rig then Rig = BuildDummy() end
+				return Rig
+			end
+			LoadRig()
+			if LocalPlayer then
+				Library:Connect(LocalPlayer.CharacterAdded, function()
+					task.wait(1)
+					LoadRig()
+				end)
+			end
+
+			local PreviewName = (UsePlayer and LocalPlayer and LocalPlayer.Name) or "Dummy"
+
+			-- крутилка модельки
+			local Yaw, Pitch = 0.6, 0.12
+			local Dragging, LastX, LastY = false, 0, 0
+			local AutoRotate = Animate
+			if Rotatable then
+				Library:Create("TextLabel", { Name = "\0", FontFace = Library.Font, TextSize = Library.FontSize, Parent = Holder.Instance, BackgroundTransparency = 1, TextColor3 = Library.Theme["Inactive Text"], Text = "drag preview to rotate", Size = UDim2.new(1, 0, 0, 14), ZIndex = 7, BorderSizePixel = 0 }):AddToTheme({ TextColor3 = "Inactive Text" })
+				View:Connect("InputBegan", function(Input)
+					if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
+						Dragging = true
+						AutoRotate = false
+						LastX, LastY = Input.Position.X, Input.Position.Y
+					end
+				end)
+				Library:Connect(UserInputService.InputChanged, function(Input)
+					if not Dragging then return end
+					if Input.UserInputType == Enum.UserInputType.MouseMovement or Input.UserInputType == Enum.UserInputType.Touch then
+						Yaw = Yaw - (Input.Position.X - LastX) * 0.012
+						Pitch = math.clamp(Pitch + (Input.Position.Y - LastY) * 0.008, -0.5, 1.2)
+						LastX, LastY = Input.Position.X, Input.Position.Y
+					end
+				end)
+				Library:Connect(UserInputService.InputEnded, function(Input)
+					if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
+						Dragging = false
+						if Animate then
+							task.delay(3, function()
+								if not Dragging then AutoRotate = true end
+							end)
+						end
+					end
+				end)
+			end
+
+			local ChamH = Instance.new("Highlight")
+			ChamH.Name = "Chams"
+			ChamH.Adornee = Rig
+			ChamH.FillTransparency = 0.5
+			ChamH.OutlineTransparency = 0
+			ChamH.Parent = World.Instance
+
+			local Cam = Instance.new("Camera")
+			Cam.Parent = View.Instance
+			View.Instance.CurrentCamera = Cam
+
+			local Overlay = Library:Create("Frame", { Name = "\0", Parent = Holder.Instance, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, 0), BorderSizePixel = 0, ZIndex = 4 })
+
+			local ESPBox = Library:Create("Frame", { Name = "\0", Parent = Overlay.Instance, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 5 })
+			local ESPStroke = Library:Create("UIStroke", { Name = "\0", Parent = ESPBox.Instance, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 1.5, Color = Library.Theme["Accent"] })
+
+			local ESPName = Library:Create("TextLabel", { Name = "\0", FontFace = Library.Font, TextSize = Library.FontSize, Parent = Overlay.Instance, BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255), Text = PreviewName, Size = UDim2.new(0, 200, 0, 16), ZIndex = 6, BorderSizePixel = 0 })
+			Library:Create("UIStroke", { Name = "\0", Parent = ESPName.Instance })
+
+			local OutBox = Library:Create("Frame", { Name = "\0", Parent = Overlay.Instance, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 4 })
+			Library:Create("UIStroke", { Name = "\0", Parent = OutBox.Instance, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Color = Color3.new(0, 0, 0) })
+
+			local HpBG = Library:Create("Frame", { Name = "\0", Parent = Overlay.Instance, BackgroundColor3 = Color3.fromRGB(0, 0, 0), BorderSizePixel = 0, ZIndex = 5 })
+			local HpFill = Library:Create("Frame", { Name = "\0", Parent = HpBG.Instance, BackgroundColor3 = Color3.fromRGB(0, 255, 100), BorderSizePixel = 0, ZIndex = 6 })
+
+			local ArmorBG = Library:Create("Frame", { Name = "\0", Parent = Overlay.Instance, BackgroundColor3 = Color3.fromRGB(0, 0, 0), BorderSizePixel = 0, ZIndex = 5 })
+			local ArmorFill = Library:Create("Frame", { Name = "\0", Parent = ArmorBG.Instance, BackgroundColor3 = Color3.fromRGB(0, 170, 255), BorderSizePixel = 0, ZIndex = 6 })
+
+			local DistLabel = Library:Create("TextLabel", { Name = "\0", FontFace = Library.Font, TextSize = Library.FontSize, Parent = Overlay.Instance, BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255), Text = "27m", Size = UDim2.new(0, 200, 0, 14), ZIndex = 6, BorderSizePixel = 0 })
+			Library:Create("UIStroke", { Name = "\0", Parent = DistLabel.Instance })
+
+			local Bones = { }
+			for _ = 1, 5 do
+				table.insert(Bones, Library:Create("Frame", { Name = "\0", Parent = Overlay.Instance, AnchorPoint = Vector2.new(0.5, 0.5), BorderSizePixel = 0, BackgroundColor3 = Color3.fromRGB(255, 255, 255), Size = UDim2.fromOffset(2, 10), ZIndex = 5 }))
+			end
+
+			local function SetLine(item, p1, p2)
+				local mid = (p1 + p2) / 2
+				local d = p2 - p1
+				local len = d.Magnitude
+				if len < 1 then item.Instance.Visible = false return end
+				item.Instance.Visible = true
+				item.Instance.Position = UDim2.fromOffset(mid.X, mid.Y)
+				item.Instance.Size = UDim2.fromOffset(2, len)
+				item.Instance.Rotation = math.deg(math.atan2(d.X, d.Y))
+			end
+
+			local function To2D(vs, wp)
+				local v3, on = Cam:WorldToViewportPoint(wp)
+				return Vector2.new(v3.X * vs.X, v3.Y * vs.Y) + Vector2.new(2, 2), on
+			end
+
+			local T0 = os.clock()
+			Library:Connect(RunService.RenderStepped, function(Delta)
+				if not Holder.Instance.Parent then return end
+				if not Rig or not Rig.Parent then LoadRig() return end
+				local vs = View.Instance.AbsoluteSize
+				if vs.X < 10 then return end
+
+				local t = os.clock() - T0
+				if AutoRotate and not Dragging then
+					Yaw = Yaw + (Delta or 0.016) * 0.5
+				end
+				-- крутим МОДЕЛЬ, камера стоит: бокс честно повторяет поворот
+				pcall(function()
+					Rig:PivotTo(CFrame.new(0, 3, 0) * CFrame.Angles(0, Yaw, 0))
+				end)
+				Cam.CFrame = CFrame.new(Vector3.new(0, 4.2 + Pitch * 4, 8.5), Vector3.new(0, 3.2, 0))
+
+				local hp = 62 + math.sin(t * 1.5) * 38
+				pcall(function()
+					local hum = LocalPlayer and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+					if hum and hum.MaxHealth > 0 then
+						hp = hum.Health / hum.MaxHealth * 100
+					end
+				end)
+				local armor = 50 + math.cos(t) * 40
+				local boxOn, outOn, nameOn, hpOn, armorOn, distOn, skelOn, chamOn = Flags[FBox], Flags[FOut], Flags[FName], Flags[FHp], Flags[FArmor], Flags[FDist], Flags[FSkel], Flags[FCham]
+				local boxC = ResolveColor(Flags[FBoxC], Library.Theme["Accent"])
+				local hpC = ResolveColor(Flags[FHpC], Color3.fromRGB(0, 255, 0))
+				local armorC = ResolveColor(Flags[FArmorC], Color3.fromRGB(0, 170, 255))
+				local skelC = ResolveColor(Flags[FSkelC], Color3.fromRGB(255, 255, 255))
+				local chamC = ResolveColor(Flags[FChamC], Library.Theme["Accent"])
+
+				local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+				for _, p in ipairs(Rig:GetDescendants()) do
+					if p:IsA("BasePart") then
+						for _, wp in ipairs({ p.CFrame * Vector3.new(p.Size.X / 2, p.Size.Y / 2, 0), p.CFrame * Vector3.new(-p.Size.X / 2, -p.Size.Y / 2, 0) }) do
+							local sp, on = To2D(vs, wp)
+							if on then
+								minX, minY = math.min(minX, sp.X), math.min(minY, sp.Y)
+								maxX, maxY = math.max(maxX, sp.X), math.max(maxY, sp.Y)
+							end
+						end
+					end
+				end
+				if minX == math.huge then ESPBox.Instance.Visible = false return end
+				local pad = 6
+				minX, minY, maxX, maxY = minX - pad, minY - pad, maxX + pad, maxY + pad
+
+				ESPBox.Instance.Visible = boxOn == true
+				if boxOn == true then
+					ESPStroke.Instance.Color = boxC
+					ESPBox.Instance.Position = UDim2.fromOffset(minX, minY)
+					ESPBox.Instance.Size = UDim2.fromOffset(maxX - minX, maxY - minY)
+				end
+
+				OutBox.Instance.Visible = boxOn == true and outOn ~= false
+				if OutBox.Instance.Visible then
+					OutBox.Instance.Position = UDim2.fromOffset(minX - 1, minY - 1)
+					OutBox.Instance.Size = UDim2.fromOffset(maxX - minX + 2, maxY - minY + 2)
+				end
+
+				ESPName.Instance.Visible = nameOn == true
+				if nameOn == true then
+					ESPName.Instance.TextColor3 = boxC
+					ESPName.Instance.Text = PreviewName
+					ESPName.Instance.Position = UDim2.fromOffset((minX + maxX) / 2 - 100, minY - 18)
+				end
+
+				HpBG.Instance.Visible = hpOn == true
+				HpFill.Instance.Visible = hpOn == true
+				if hpOn == true then
+					HpBG.Instance.Position = UDim2.fromOffset(minX - 6, minY)
+					HpBG.Instance.Size = UDim2.fromOffset(5, maxY - minY)
+					local k = math.clamp(hp / 100, 0, 1)
+					HpFill.Instance.BackgroundColor3 = hpC
+					HpFill.Instance.Position = UDim2.fromOffset(1, 1 + (1 - k) * (maxY - minY - 2))
+					HpFill.Instance.Size = UDim2.fromOffset(3, math.max(k * (maxY - minY - 2), 0))
+				end
+
+				ArmorBG.Instance.Visible = armorOn == true
+				ArmorFill.Instance.Visible = armorOn == true
+				if armorOn == true then
+					ArmorBG.Instance.Position = UDim2.fromOffset(minX - 1, maxY + 2)
+					ArmorBG.Instance.Size = UDim2.fromOffset(maxX - minX + 2, 5)
+					local k = math.clamp(armor / 100, 0, 1)
+					ArmorFill.Instance.BackgroundColor3 = armorC
+					ArmorFill.Instance.Size = UDim2.fromOffset((maxX - minX + 2) * k, 5)
+				end
+
+				DistLabel.Instance.Visible = distOn == true
+				if distOn == true then
+					DistLabel.Instance.TextColor3 = boxC
+					DistLabel.Instance.Text = "27m"
+					DistLabel.Instance.Position = UDim2.fromOffset((minX + maxX) / 2 - 100, maxY + (armorOn == true and 10 or 4))
+				end
+
+				if DummyParts and skelOn == true then
+					local function C(p) return (To2D(vs, p.Position)) end
+					local H2, T2, LA, RA, LL, RL = C(DummyParts.head), C(DummyParts.torso), C(DummyParts.lArm), C(DummyParts.rArm), C(DummyParts.lLeg), C(DummyParts.rLeg)
+					local pairs = { { H2, T2 }, { T2, LA }, { T2, RA }, { T2, LL }, { T2, RL } }
+					for i, ln in ipairs(Bones) do
+						ln.Instance.BackgroundColor3 = skelC
+						SetLine(ln, pairs[i][1], pairs[i][2])
+					end
+				else
+					for _, ln in ipairs(Bones) do
+						ln.Instance.Visible = false
+					end
+				end
+
+				ChamH.Adornee = Rig
+				ChamH.Enabled = chamOn == true
+				ChamH.FillColor = chamC
+			end)
+
+			function Preview:SetVisibility(Bool)
+				Holder.Instance.Visible = Bool
+			end
+
+			function Preview:Destroy()
+				pcall(function() Holder.Instance:Destroy() end)
+			end
+
+			return setmetatable(Preview, Library)
+		end
+
 	end
 end
 
